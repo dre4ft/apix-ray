@@ -10,6 +10,8 @@ import yaml
 import asyncio
 from scan_sessions import scan_sessions, scan_ws_clients, scan_log_watchers, broadcast_scan_update
 
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'storage'))
+from db import storage_db
 
 # ===== SCAN ROUTER =====
 scan_router = APIRouter(prefix="", tags=["scans"])
