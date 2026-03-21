@@ -38,3 +38,4 @@ xxhash==3.6.0
 zstandard==0.25.0
 python-multipart==0.0.22
 flask==3.0.3
+uvicorn[standard]==0.32.1

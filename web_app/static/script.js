@@ -43,6 +43,9 @@ function setupEventListeners() {
     document.getElementById('refresh-schemas-btn').addEventListener('click', loadSchemas);
     document.getElementById('upload-schema-btn').addEventListener('click', uploadSchema);
 
+    // Reports management
+    document.getElementById('refresh-reports-btn').addEventListener('click', loadReports);
+
     // Vulnerability checkboxes
     document.querySelectorAll('.checkbox input[type="checkbox"]').forEach(cb => {
         cb.addEventListener('change', (e) => {
@@ -59,6 +62,16 @@ function setupEventListeners() {
     // LLM Type change
     document.getElementById('llm-type').addEventListener('change', (e) => {
         loadLLMModels(e.target.value);
+    });
+
+    // Advanced configuration toggle
+    document.getElementById('advanced-config-toggle').addEventListener('change', (e) => {
+        const advancedConfig = document.getElementById('advanced-config');
+        if (e.target.checked) {
+            advancedConfig.style.display = 'block';
+        } else {
+            advancedConfig.style.display = 'none';
+        }
     });
 }
 
@@ -133,6 +146,17 @@ async function startScan() {
         document.getElementById('start-scan-btn').disabled = true;
         document.getElementById('stop-scan-btn').disabled = false;
 
+        const useMcp = document.getElementById('use-mcp').checked;
+
+        // Build request limits configuration
+        const requestLimits = {
+            global_max_requests: parseInt(document.getElementById('global-max-requests').value) || 100,
+            per_vulnerability_max: parseInt(document.getElementById('per-vuln-max').value) || 25,
+            adaptive_enabled: document.getElementById('adaptive-enabled').checked,
+            relevance_threshold: parseFloat(document.getElementById('relevance-threshold').value) || 0.7,
+            evolution_factor: parseFloat(document.getElementById('evolution-factor').value) || 1.2
+        };
+
         const response = await fetch(`${API_BASE}/start_scan`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -141,7 +165,9 @@ async function startScan() {
                 llm_type: llmType,
                 model: llmModel,
                 schema_id: oasSchema,
-                vulnerabilities: selectedVulnerabilities
+                vulnerabilities: selectedVulnerabilities,
+                use_mcp: useMcp,
+                request_limits: requestLimits
             })
         });
 
@@ -375,7 +401,7 @@ function updateDashboard(statusData) {
 }
 
 function updateMetrics(metrics) {
-    // Update metrics values
+    // Update metrics grid values
     if (metrics.endpoints_discovered !== undefined) {
         document.getElementById('metric-endpoints').textContent = metrics.endpoints_discovered;
     }
@@ -387,6 +413,34 @@ function updateMetrics(metrics) {
     }
     if (metrics.medium_severity !== undefined) {
         document.getElementById('metric-medium').textContent = metrics.medium_severity;
+    }
+
+    // Update status cards
+    if (metrics.vulnerabilities_found !== undefined) {
+        document.getElementById('vuln-count').textContent = metrics.vulnerabilities_found;
+    }
+    if (metrics.requests_executed !== undefined) {
+        document.getElementById('requests-count').textContent = metrics.requests_executed;
+    }
+
+    // Update additional metrics if elements exist
+    if (metrics.low_severity !== undefined && document.getElementById('metric-low')) {
+        document.getElementById('metric-low').textContent = metrics.low_severity;
+    }
+    if (metrics.critical_severity !== undefined && document.getElementById('metric-critical')) {
+        document.getElementById('metric-critical').textContent = metrics.critical_severity;
+    }
+    if (metrics.info_severity !== undefined && document.getElementById('metric-info')) {
+        document.getElementById('metric-info').textContent = metrics.info_severity;
+    }
+    if (metrics.scan_time_seconds !== undefined && document.getElementById('metric-scan-time')) {
+        document.getElementById('metric-scan-time').textContent = metrics.scan_time_seconds + 's';
+    }
+    if (metrics.avg_response_time_ms !== undefined && document.getElementById('metric-avg-response')) {
+        document.getElementById('metric-avg-response').textContent = metrics.avg_response_time_ms + 'ms';
+    }
+    if (metrics.success_rate_percent !== undefined && document.getElementById('metric-success-rate')) {
+        document.getElementById('metric-success-rate').textContent = metrics.success_rate_percent + '%';
     }
 }
 
@@ -454,30 +508,42 @@ function displayResults(results) {
 }
 
 // ===== Export Report =====
-function exportReport() {
+async function exportReport() {
     if (!currentScanId) {
         showToast('No scan results to export', 'warning');
         return;
     }
 
-    const report = {
-        scan_id: currentScanId,
-        target_url: document.getElementById('target-info-url').textContent,
-        llm_type: document.getElementById('target-info-llm').textContent,
-        scan_time: document.getElementById('scan-time').textContent,
-        vulnerabilities_found: document.getElementById('vuln-count').textContent,
-        timestamp: new Date().toISOString()
-    };
+    try {
+        // Récupérer le rapport au format Markdown depuis l'API
+        const response = await fetch(`${API_BASE}/get_report/${currentScanId}`);
 
-    const dataStr = JSON.stringify(report, null, 2);
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `apix-ray-report-${currentScanId.substring(0, 8)}.json`;
-    link.click();
-    
-    showToast('Report exported successfully', 'success');
+        if (!response.ok) {
+            const errorData = await response.json();
+            showToast(`Failed to get report: ${errorData.error}`, 'error');
+            return;
+        }
+
+        // Le rapport est retourné directement au format Markdown
+        const reportMarkdown = await response.text();
+
+        // Créer un blob avec le contenu Markdown
+        const dataBlob = new Blob([reportMarkdown], { type: 'text/markdown' });
+        const url = URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `apix-ray-report-${currentScanId.substring(0, 8)}.md`;
+        link.click();
+
+        // Nettoyer l'URL
+        URL.revokeObjectURL(url);
+
+        showToast('Report exported successfully as Markdown', 'success');
+
+    } catch (error) {
+        showToast('Failed to export report', 'error');
+        console.error('Export report error:', error);
+    }
 }
 
 // ===== Schema Management =====
@@ -485,11 +551,91 @@ async function loadSchemas() {
     try {
         const response = await fetch(`${API_BASE}/schemas`);
         const data = await response.json();
-        
+
         displaySchemas(data.schemas || []);
     } catch (error) {
         showToast('Failed to load schemas', 'error');
         console.error('Load schemas error:', error);
+    }
+}
+
+// ===== Reports Management =====
+async function loadReports() {
+    try {
+        const response = await fetch(`${API_BASE}/list_reports`);
+        const data = await response.json();
+
+        displayReports(data.reports || []);
+    } catch (error) {
+        showToast('Failed to load reports', 'error');
+        console.error('Load reports error:', error);
+        displayReports([]);
+    }
+}
+
+function displayReports(reports) {
+    const container = document.getElementById('reports-container');
+
+    if (reports.length === 0) {
+        container.innerHTML = '<p class="empty-state">No reports available. Run a scan to generate reports.</p>';
+        return;
+    }
+
+    container.innerHTML = '';
+
+    reports.forEach(report => {
+        const reportElement = document.createElement('div');
+        reportElement.className = 'report-item';
+
+        const createdDate = new Date(report.created_at).toLocaleString();
+
+        reportElement.innerHTML = `
+            <div class="report-info">
+                <div class="report-title">Scan ${report.scan_id.substring(0, 8)}</div>
+                <div class="report-meta"><strong>Target:</strong> ${report.target_url}</div>
+                <div class="report-meta"><strong>Status:</strong> ${report.status}</div>
+                <div class="report-meta"><strong>Vulnerabilities:</strong> ${report.vulnerabilities_count}</div>
+                <div class="report-meta"><strong>Created:</strong> ${createdDate}</div>
+            </div>
+            <div class="report-actions">
+                <button class="btn btn-primary btn-small" onclick="downloadReport('${report.scan_id}')">
+                    📥 Download
+                </button>
+            </div>
+        `;
+
+        container.appendChild(reportElement);
+    });
+}
+
+async function downloadReport(scanId) {
+    try {
+        const response = await fetch(`${API_BASE}/get_report/${scanId}`);
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            showToast(`Failed to download report: ${errorData.error}`, 'error');
+            return;
+        }
+
+        // Créer un blob avec le contenu Markdown
+        const reportContent = await response.text();
+        const blob = new Blob([reportContent], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+
+        // Créer un lien de téléchargement
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `apix-ray-report-${scanId.substring(0, 8)}.md`;
+        link.click();
+
+        // Nettoyer
+        URL.revokeObjectURL(url);
+
+        showToast('Report downloaded successfully', 'success');
+    } catch (error) {
+        showToast('Failed to download report', 'error');
+        console.error('Download report error:', error);
     }
 }
 
@@ -668,10 +814,15 @@ function switchTab(tabName) {
     // Deactivate all tabs
     document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    
+
     // Activate selected tab
     document.getElementById(tabName).classList.add('active');
     document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+
+    // Load content for specific tabs
+    if (tabName === 'reports') {
+        loadReports();
+    }
 }
 
 // ===== Toast Notifications =====

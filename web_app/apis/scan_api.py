@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from typing import List, Dict, Any
 import bridge
@@ -8,17 +8,11 @@ import sys
 import json
 import yaml
 import asyncio
+from scan_sessions import scan_sessions, scan_ws_clients, scan_log_watchers, broadcast_scan_update
 
 
 # ===== SCAN ROUTER =====
 scan_router = APIRouter(prefix="", tags=["scans"])
-
-# Dictionnaire de sessions pour tracker les scans
-scan_sessions = {}
-# WebSocket clients par scan id
-scan_ws_clients = {}
-# Tâches de surveillance de fichiers de log par scan id
-scan_log_watchers = {}
 
 def get_log_file_path(scan_id: str) -> str:
     """Retourne le chemin de fichier log correspondant au scan_id."""
@@ -48,14 +42,7 @@ def load_scan_logs_from_file(scan_id: str) -> list[str]:
         return []
 
 
-async def broadcast_scan_update(scan_id: str, payload: Dict[str, Any]):
-    clients = scan_ws_clients.get(scan_id, set())
-    for client in list(clients):
-        try:
-            await client.send_json(payload)
-        except Exception:
-            clients.discard(client)
-    scan_ws_clients[scan_id] = clients
+
 
 
 async def scan_log_watcher(scan_id: str):
@@ -94,18 +81,26 @@ async def scan_log_watcher(scan_id: str):
             logs = file_logs if file_logs else session.get("logs", [])
             results = session.get("results", [])
             
-            # Calculer les métriques en temps réel
+            # Get metrics from session (updated by results_callback)
             metrics = {
                 "endpoints_discovered": session.get("endpoints_discovered", 0),
                 "tests_generated": session.get("tests_generated", 0),
-                "high_severity": len([r for r in results if r.get("severity") == "high"]),
-                "medium_severity": len([r for r in results if r.get("severity") == "medium"])
+                "requests_executed": session.get("requests_executed", 0),
+                "vulnerabilities_found": session.get("vulnerabilities_found", 0),
+                "high_severity": session.get("high_severity", 0),
+                "medium_severity": session.get("medium_severity", 0),
+                "low_severity": session.get("low_severity", 0),
+                "critical_severity": session.get("critical_severity", 0),
+                "info_severity": session.get("info_severity", 0),
+                "scan_time_seconds": session.get("scan_time_seconds", 0),
+                "avg_response_time_ms": session.get("avg_response_time_ms", 0),
+                "success_rate_percent": session.get("success_rate_percent", 0)
             }
 
             await broadcast_scan_update(scan_id, {
                 "type": "scan_update",
                 "status": current_status,
-                "progress": current_progress,
+                "progress": metrics.get("progress", current_progress),
                 "target_url": session.get("target_url"),
                 "logs": logs,
                 "results": results,
@@ -125,6 +120,14 @@ class ScanRequest(BaseModel):
     model: str = "qwen2.5-coder:latest"
     schema_id: str  # Changé de oas_name à schema_id
     vulnerabilities: list = ["IDOR", "Broken Access Control", "SQL injection", "XSS", "Command Injection"]
+    use_mcp: bool = False
+    request_limits: Dict[str, Any] = {
+        "global_max_requests": 100,
+        "per_vulnerability_max": 25,
+        "adaptive_enabled": True,
+        "relevance_threshold": 0.7,
+        "evolution_factor": 1.2
+    }
 
 @scan_router.post("/start_scan")
 async def start_scan(scan_request: ScanRequest):
@@ -141,7 +144,7 @@ async def start_scan(scan_request: ScanRequest):
         "progress": 0,
         "log_file": log_file_path
     }
-    bridge.start_scan(scan_id=scan_id, llm_type=scan_request.llm_type, model=scan_request.model, target_url=scan_request.target_url, schema_id=scan_request.schema_id, vulnerability_types_to_test=scan_request.vulnerabilities)
+    bridge.start_scan(scan_id=scan_id, llm_type=scan_request.llm_type, model=scan_request.model, target_url=scan_request.target_url, schema_id=scan_request.schema_id, vulnerability_types_to_test=scan_request.vulnerabilities, use_mcp=scan_request.use_mcp, request_limits=scan_request.request_limits)
 
     # Lancer un watcher de fichier de log qui envoie des événements en temps réel via WS
     watcher_task = asyncio.create_task(scan_log_watcher(str(scan_id)))
@@ -221,6 +224,46 @@ def get_scan_logs(scan_id: str):
         "status": scan_sessions[scan_id].get("status", "unknown")
     })
 
+@scan_router.post("/update_scan_results/{scan_id}")
+async def update_scan_results(scan_id: str, results: List[Dict[str, Any]] = None, metrics: Dict[str, Any] = None):
+    """Update scan results and metrics in real-time"""
+    if scan_id not in scan_sessions:
+        return JSONResponse(status_code=404, content={"error": "Scan not found"})
+
+    # Update results if provided
+    if results is not None:
+        scan_sessions[scan_id]["results"] = results
+        # Update progress based on results
+        scan_sessions[scan_id]["progress"] = min(90, 10 + len(results) * 2)
+
+    # Update metrics if provided
+    if metrics is not None:
+        # Handle special fields
+        if "status" in metrics:
+            scan_sessions[scan_id]["status"] = metrics["status"]
+        if "progress" in metrics:
+            scan_sessions[scan_id]["progress"] = metrics["progress"]
+
+        # Update other metrics
+        for key, value in metrics.items():
+            if key not in ["status", "progress"]:  # Already handled above
+                scan_sessions[scan_id][key] = value
+
+    # Create payload for WebSocket broadcast
+    payload = {
+        "type": "scan_update",
+        "scan_id": scan_id,
+        "results": scan_sessions[scan_id].get("results", []),
+        "progress": scan_sessions[scan_id].get("progress", 0),
+        "status": scan_sessions[scan_id].get("status", "running"),
+        "metrics": metrics or {}
+    }
+
+    # Broadcast update via WebSocket
+    asyncio.create_task(broadcast_scan_update(scan_id, payload))
+
+    return JSONResponse(status_code=200, content={"status": "updated"})
+
 @scan_router.get("/scan_results/{scan_id}")
 def get_scan_results(scan_id: str):
     if scan_id not in scan_sessions:
@@ -284,3 +327,47 @@ async def get_llm_models():
         return {"models": models}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": f"Failed to get LLM models: {str(e)}"})
+
+@scan_router.get("/get_report/{scan_id}")
+async def get_scan_report(scan_id: str):
+    """Récupérer le rapport complet d'un scan au format Markdown"""
+    try:
+        # Essayer d'abord de récupérer depuis MongoDB
+        report_data = await storage_db.get_scan_report(scan_id)
+
+        if report_data:
+            # Retourner le rapport au format Markdown
+            return Response(
+                content=report_data["report"],
+                media_type="text/markdown",
+                headers={"Content-Disposition": f"attachment; filename=apix-ray-report-{scan_id}.md"}
+            )
+
+        # Fallback vers les sessions en mémoire si pas trouvé en DB
+        if scan_id not in scan_sessions:
+            return JSONResponse(status_code=404, content={"error": "Scan not found"})
+
+        session = scan_sessions[scan_id]
+        report = session.get("report", "")
+
+        if not report:
+            return JSONResponse(status_code=404, content={"error": "Report not available"})
+
+        # Retourner le rapport au format Markdown
+        return Response(
+            content=report,
+            media_type="text/markdown",
+            headers={"Content-Disposition": f"attachment; filename=apix-ray-report-{scan_id}.md"}
+        )
+
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"Failed to retrieve report: {str(e)}"})
+
+@scan_router.get("/list_reports")
+async def list_scan_reports(limit: int = 20):
+    """Lister les rapports de scan disponibles"""
+    try:
+        reports = await storage_db.list_scan_reports(limit)
+        return JSONResponse(status_code=200, content={"reports": reports})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"Failed to list reports: {str(e)}"})

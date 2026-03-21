@@ -30,12 +30,15 @@ class HttpRequestManager:
         self.retry_delay = retry_delay
         self.base_url = base_url.rstrip('/') if base_url else ""
         self.auth = auth
-        
+
         self.headers = {
-            "Authorization" : f"Bearer {self.auth}",
             "User-Agent": "API-Pentest-Agent/1.0", # Un User-Agent personnalisé
             "Accept": "*/*" # Pour être permissif
         }
+
+        # Add Authorization header only if auth is provided
+        if self.auth:
+            self.headers["Authorization"] = f"Bearer {self.auth}"
 
         self.httpx_client = httpx.AsyncClient(
             timeout=self.default_timeout,

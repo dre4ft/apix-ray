@@ -2,8 +2,10 @@ import asyncio
 import os
 import logging
 import sys
+import json
 from dotenv import load_dotenv
 from pentest_agent import PentestAgent, AgentInitializationError
+from mcp_agent import MCPPentestAgent
 from llm_client import LitellmAPIClient
 from ollama_client import OllamaAPIClient
 from xai_client import XAIAPIClient
@@ -23,7 +25,7 @@ def generate_scan_id():
     return uuid_utils.uuid4()
 
 
-async def main_pentest_run(scan_id : uuid_utils.UUID,llm_type:str = "ollama", model : str = "qwen2.5-coder:latest", target_url: str = "http://example.com/api", schema_id: str = None, oas_name: str = "oas.yaml", litellm_url: str = None, vulnerability_types_to_test: list = None, auth: str = None):
+async def main_pentest_run(scan_id : uuid_utils.UUID, llm_type:str = "ollama", model : str = "qwen2.5-coder:latest", target_url: str = "http://example.com/api", schema_id: str = None, oas_name: str = "oas.yaml", litellm_url: str = None, vulnerability_types_to_test: list = None, auth: str = None, use_mcp: bool = False, request_limits: dict = None):
     """
     Fonction principale pour lancer le processus de pentest agent.
     Charge la configuration, initialise les clients et l'agent, exécute le pentest, puis ferme les clients.
@@ -116,23 +118,48 @@ async def main_pentest_run(scan_id : uuid_utils.UUID,llm_type:str = "ollama", mo
 
     # Fonction callback pour mettre à jour les résultats en temps réel
     async def update_scan_results(results, metrics=None):
-        # Importer scan_sessions depuis l'API
+        # Faire un appel HTTP vers l'API web pour mettre à jour les résultats
         try:
-            import sys
-            sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'web_app'))
-            from apis.scan_api import scan_sessions
-            scan_sessions[str(scan_id)]["results"] = results
-            scan_sessions[str(scan_id)]["progress"] = min(90, 10 + len(results) * 2)  # Estimation du progrès
-            
-            # Mettre à jour les métriques si fournies
-            if metrics:
-                scan_sessions[str(scan_id)].update(metrics)
-                
+            import httpx
+
+            # URL de l'API web (adapter selon la configuration)
+            api_base_url = "http://localhost:8080"  # TODO: rendre configurable
+            update_url = f"{api_base_url}/update_scan_results/{scan_id}"
+
+            async with httpx.AsyncClient() as client:
+                payload = {}
+                if results is not None:
+                    payload["results"] = results
+                if metrics is not None:
+                    payload["metrics"] = metrics
+
+                response = await client.post(update_url, json=payload, timeout=5.0)
+
+                if response.status_code != 200:
+                    logging.warning(f"Failed to update scan results via API: HTTP {response.status_code}")
+                else:
+                    logging.debug(f"Successfully updated scan results for {scan_id}")
+
+        except ImportError as e:
+            # Ignore les erreurs d'importation circulaire pendant l'initialisation
+            if "circular import" in str(e).lower() or "partially initialized" in str(e).lower():
+                logging.debug("Ignoring circular import error during initialization")
+            else:
+                logging.warning(f"Failed to update scan results in real-time: {e}")
         except Exception as e:
             logging.warning(f"Failed to update scan results in real-time: {e}")
 
     max_concurrent_requests =  5
-    
+
+    # Dynamic request limits configuration (use passed limits or defaults)
+    if request_limits is None:
+        request_limits = {
+            "global_max_requests": 100,  # Maximum total requests for the scan
+            "per_vulnerability_max": 25,  # Maximum requests per vulnerability type
+            "adaptive_enabled": True,  # Enable adaptive request generation
+            "relevance_threshold": 0.7,  # Minimum relevance score for endpoints
+            "evolution_factor": 1.2  # How much to increase requests based on findings
+        }
 
     vulnerability_types_to_test = ["IDOR", "Broken Access Control", "SQL injection", "XSS", "Command Injection"] if not vulnerability_types_to_test else vulnerability_types_to_test
     logging.info(f"Vulnerability types not specified, using default: {vulnerability_types_to_test}")
@@ -168,32 +195,48 @@ async def main_pentest_run(scan_id : uuid_utils.UUID,llm_type:str = "ollama", mo
         return
 
     # --- 4. Initialisation du Pentest Agent ---
-    logging.info("Initializing PentestAgent...")
+    agent_type = "MCP" if use_mcp else "Legacy"
+    logging.info(f"Initializing {agent_type} PentestAgent...")
     try:
-        agent = PentestAgent(
-            scan_id=scan_id,
-            llm_client=llm_client,
-            request_manager=req_manager,
-            oas_content=oas_content,  # Passer le contenu OAS au lieu du chemin du fichier
-            api_base_url=api_target_base_url,
-            max_concurrent_requests=max_concurrent_requests,
-            results_callback=update_scan_results  # Callback pour mises à jour temps réel
-        )
-        logging.info("PentestAgent initialized successfully.")
+        if use_mcp:
+            agent = MCPPentestAgent(
+                scan_id=scan_id,
+                llm_client=llm_client,
+                oas_content=oas_content,
+                api_base_url=api_target_base_url,
+                max_concurrent_requests=max_concurrent_requests,
+                results_callback=update_scan_results,
+                auth=auth,
+                request_limits=request_limits
+            )
+            await agent.initialize()  # MCP agent needs async initialization
+        else:
+            agent = PentestAgent(
+                scan_id=scan_id,
+                llm_client=llm_client,
+                request_manager=req_manager,
+                oas_content=oas_content,  # Passer le contenu OAS au lieu du chemin du fichier
+                api_base_url=api_target_base_url,
+                max_concurrent_requests=max_concurrent_requests,
+                results_callback=update_scan_results  # Callback pour mises à jour temps réel
+            )
+        logging.info(f"{agent_type} PentestAgent initialized successfully.")
 
     except AgentInitializationError as e:
         logging.error(f"Agent Initialization Failed: {e}")
         return # Arrêter si l'initialisation échoue
 
     # --- 5. Lancement du Processus de Pentest ---
-    logging.info(f"--- Starting Pentest Agent run for API: {api_target_base_url} ---")
+    logging.info(f"--- Starting {agent_type} Pentest Agent run for API: {api_target_base_url} ---")
     try:
         # Lancer l'agent pour exécuter la génération des tests et leur exécution
-        run_result = await agent.run(vulnerability_types_to_test=vulnerability_types_to_test)
-        print(f"\n--- Pentest Run Summary ---")
+        if use_mcp:
+            run_result = await agent.run_pentest_workflow(vulnerability_types=vulnerability_types_to_test)
+        else:
+            run_result = await agent.run(vulnerability_types_to_test=vulnerability_types_to_test)
+        print(f"\n--- {agent_type} Pentest Run Summary ---")
         print(f"Status: {run_result.get('status')}")
-        print(f"Requests queued: {run_result.get('requests_queued', 'N/A')}")
-        print(f"Requests executed: {run_result.get('requests_executed', 'N/A')}")
+        print(f"Vulnerabilities found: {run_result.get('vulnerabilities_found', 'N/A')}")
         print("---------------------------\n")
 
     except asyncio.CancelledError:

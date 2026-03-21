@@ -9,14 +9,17 @@ sys.path.insert(0, src_path)
 
 from wrapper import main_pentest_run
 from wrapper import generate_scan_id as scan_id_generator
-from apis.scan_api import scan_sessions
+from apis.scan_sessions import scan_sessions, broadcast_scan_update
+
+# Import de la base de données
+storage_path = os.path.join(os.path.dirname(__file__), '..', 'storage')
+sys.path.append(storage_path)
+from db import storage_db
 
 # Fonction pour diffuser les mises à jour de scan (évite l'import circulaire)
 async def broadcast_scan_error(scan_id: str, error_message: str):
     """Diffuse une erreur de scan via WebSocket si disponible"""
     try:
-        # Importer ici pour éviter les dépendances circulaires
-        from apis.scan_api import broadcast_scan_update
         await broadcast_scan_update(scan_id, {
             "type": "scan_update",
             "status": "error",
@@ -37,7 +40,7 @@ def generate_scan_id():
     return scan_id_generator()
 
 
-def start_scan(scan_id: uuid_utils.UUID, llm_type: str = "ollama", model: str = "qwen2.5-coder:latest", target_url: str = "http://example.com/api", schema_id: str = None, litellm_url: str = None, auth: str = None, vulnerability_types_to_test: list = None):
+def start_scan(scan_id: uuid_utils.UUID, llm_type: str = "ollama", model: str = "qwen2.5-coder:latest", target_url: str = "http://example.com/api", schema_id: str = None, litellm_url: str = None, auth: str = None, vulnerability_types_to_test: list = None, use_mcp: bool = False, request_limits: Dict = None):
     async def run_scan():
         try:
             result = await main_pentest_run(
@@ -48,6 +51,8 @@ def start_scan(scan_id: uuid_utils.UUID, llm_type: str = "ollama", model: str = 
                 auth=auth,
                 schema_id=schema_id,  # Changé de oas_name à schema_id
                 vulnerability_types_to_test=vulnerability_types_to_test,
+                use_mcp=use_mcp,
+                request_limits=request_limits,
             )
 
             # Mettre à jour la session avec les résultats finaux
@@ -55,7 +60,38 @@ def start_scan(scan_id: uuid_utils.UUID, llm_type: str = "ollama", model: str = 
             if scan_id_str in scan_sessions:
                 scan_sessions[scan_id_str]["status"] = result.get("status", "completed")
                 scan_sessions[scan_id_str]["results"] = result.get("vulnerabilities_found", [])
+                scan_sessions[scan_id_str]["report"] = result.get("report", "")
                 scan_sessions[scan_id_str]["progress"] = 100
+
+                # Stocker le rapport complet dans MongoDB
+                report_data = {
+                    "scan_id": scan_id_str,
+                    "report": result.get("report", ""),
+                    "status": result.get("status", "completed"),
+                    "vulnerabilities_found": result.get("vulnerabilities_found", []),
+                    "target_url": scan_sessions[scan_id_str].get("target_url", ""),
+                    "llm_type": scan_sessions[scan_id_str].get("llm_type", ""),
+                    "vulnerabilities_tested": scan_sessions[scan_id_str].get("vulnerabilities", [])
+                }
+
+                # Ajouter les métriques si disponibles
+                if "endpoints_discovered" in scan_sessions[scan_id_str]:
+                    report_data["metrics"] = {
+                        "endpoints_discovered": scan_sessions[scan_id_str].get("endpoints_discovered", 0),
+                        "tests_generated": scan_sessions[scan_id_str].get("tests_generated", 0),
+                        "requests_executed": scan_sessions[scan_id_str].get("requests_executed", 0),
+                        "vulnerabilities_found": len(result.get("vulnerabilities_found", [])),
+                        "high_severity": scan_sessions[scan_id_str].get("high_severity", 0),
+                        "medium_severity": scan_sessions[scan_id_str].get("medium_severity", 0),
+                        "low_severity": scan_sessions[scan_id_str].get("low_severity", 0),
+                        "critical_severity": scan_sessions[scan_id_str].get("critical_severity", 0),
+                        "info_severity": scan_sessions[scan_id_str].get("info_severity", 0),
+                        "scan_time_seconds": scan_sessions[scan_id_str].get("scan_time_seconds", 0),
+                        "avg_response_time_ms": scan_sessions[scan_id_str].get("avg_response_time_ms", 0),
+                        "success_rate_percent": scan_sessions[scan_id_str].get("success_rate_percent", 0)
+                    }
+
+                await storage_db.store_scan_report(scan_id_str, report_data)
 
         except asyncio.CancelledError:
             # Gestion propre de l'annulation

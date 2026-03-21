@@ -22,7 +22,7 @@ d'offrir une interface similaire pour appeler un serveur Ollama local.
         self.ollama_client = AsyncClient()
         logging.info(f"OllamaAPIClient initialized for model '{self.model_name}'")
 
-    async def chat_completion(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    async def chat_completion(self, messages: List[Dict[str, str]], temperature: float = 0.7, max_tokens: int = 1000, stream: bool = False) -> Dict[str, Any]:
         """Réalise une complétion de chat via l'API Ollama.
 
         Args:
