@@ -1,0 +1,185 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Mock Vulnerable API",
+    "description": "Une API FastAPI dÃ©libÃ©rÃ©ment 'vulnÃ©rable' sous forme de bouchon. Les rÃ©ponses simulent des vulnÃ©rabilitÃ©s courantes (XSS, SQLi, etc.) mais ne sont pas rÃ©ellement exploitables. Utilisez /docs pour voir l'interface Swagger.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "Root",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": { "application/json": { "schema": {} } }
+          }
+        }
+      }
+    },
+    "/echo": {
+      "get": {
+        "summary": "Echo Input",
+        "description": "Endpoint qui rÃ©pÃ¨te l'entrÃ©e utilisateur sans filtrage.\nSimule une vulnÃ©rabilitÃ© XSS : l'entrÃ©e est directement retournÃ©e.",
+        "operationId": "echo_input_echo_get",
+        "parameters": [
+          {
+            "name": "text",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Texte Ã  rÃ©pÃ©ter (simule XSS)",
+              "title": "Text"
+            },
+            "description": "Texte Ã  rÃ©pÃ©ter (simule XSS)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": { "application/json": { "schema": {} } }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/user/{user_id}": {
+      "get": {
+        "summary": "Get User",
+        "description": "RÃ©cupÃ¨re les infos d'un utilisateur par ID.\nSimule une vulnÃ©rabilitÃ© SQLi : accepte des entrÃ©es non filtrÃ©es.",
+        "operationId": "get_user_user__user_id__get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "User Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": { "application/json": { "schema": {} } }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/login": {
+      "post": {
+        "summary": "Login",
+        "description": "Simule une authentification vulnÃ©rable.\nAccepte toujours 'admin'/'admin' pour simuler une faille.",
+        "operationId": "login_login_post",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "title": "Username" }
+          },
+          {
+            "name": "password",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "title": "Password" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": { "application/json": { "schema": {} } }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/search": {
+      "get": {
+        "summary": "Search",
+        "description": "Recherche simulÃ©e avec injection possible.\nRetourne des rÃ©sultats basÃ©s sur la requÃªte.",
+        "operationId": "search_search_get",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "RequÃªte de recherche",
+              "title": "Query"
+            },
+            "description": "RequÃªte de recherche"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": { "application/json": { "schema": {} } }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": { "$ref": "#/components/schemas/ValidationError" },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": { "anyOf": [{ "type": "string" }, { "type": "integer" }] },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": { "type": "string", "title": "Message" },
+          "type": { "type": "string", "title": "Error Type" },
+          "input": { "title": "Input" },
+          "ctx": { "type": "object", "title": "Context" }
+        },
+        "type": "object",
+        "required": ["loc", "msg", "type"],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

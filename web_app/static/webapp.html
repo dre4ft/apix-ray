@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APIX-Ray - Pentest Agent Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <h1>🔍 APIX-Ray</h1>
+                <p>AI-Powered API Penetration Testing Agent</p>
+            </div>
+            <div class="header-status">
+                <span id="health-status" class="status-indicator">●</span>
+                <span id="health-text">Checking...</span>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <!-- Left Sidebar - Configuration -->
+            <aside class="sidebar">
+                <div class="panel">
+                    <h2>⚙️ Configuration</h2>
+                    
+                    <div class="form-group">
+                        <label for="target-url">Target URL</label>
+                        <input 
+                            type="text" 
+                            id="target-url" 
+                            placeholder="http://localhost:8000"
+                            value="http://127.0.0.1:8000"
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="llm-type">LLM Type</label>
+                        <select id="llm-type">
+                            <option value="ollama">Ollama (Local)</option>
+                            <option value="litellm">Litellm (Remote)</option>
+                            <option value="xai">xAI</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="llm-model">LLM Model</label>
+                        <select id="llm-model">
+                            <option value="llama2">llama2</option>
+                            <option value="qwen2.5">qwen2.5</option>
+                            <option value="qwen2.5-coder:latest">qwen2.5-coder:latest</option>
+                            <option value="grok-2">grok-2</option>
+                            <option value="grok-2-1212">grok-2-1212</option>
+                            <option value="grok-beta">grok-beta</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="oas-schema">OpenAPI Schema (OAS)</label>
+                        <select id="oas-schema">
+                            <option value="">Select a schema...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Vulnerabilities to Test</label>
+                        <div class="checkbox-group">
+                            <label class="checkbox">
+                                <input type="checkbox" value="IDOR" checked>
+                                IDOR
+                            </label>
+                            <label class="checkbox">
+                                <input type="checkbox" value="Broken Access Control" checked>
+                                Access Control
+                            </label>
+                            <label class="checkbox">
+                                <input type="checkbox" value="SQL injection" checked>
+                                SQL Injection
+                            </label>
+                            <label class="checkbox">
+                                <input type="checkbox" value="XSS" checked>
+                                XSS
+                            </label>
+                            <label class="checkbox">
+                                <input type="checkbox" value="Command Injection" checked>
+                                Command Injection
+                            </label>
+                        </div>
+                    </div>
+
+                    <button id="start-scan-btn" class="btn btn-primary btn-large">
+                        🚀 Start Scan
+                    </button>
+                </div>
+            </aside>
+
+            <!-- Center Content Area -->
+            <section class="content">
+                <!-- Tabs -->
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+                    <button class="tab-btn" data-tab="schemas">Schemas</button>
+                    <button class="tab-btn" data-tab="logs">Logs</button>
+                    <button class="tab-btn" data-tab="results">Results</button>
+                </div>
+
+                <!-- Dashboard Tab -->
+                <div id="dashboard" class="tab-content active">
+                    <div class="panel">
+                        <h2>📊 Scan Status</h2>
+                        
+                        <div class="status-cards">
+                            <div class="status-card">
+                                <div class="card-label">Status</div>
+                                <div id="status-value" class="card-value">Not Started</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="card-label">Progress</div>
+                                <div id="progress-value" class="card-value">0%</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="card-label">Vulnerabilities Found</div>
+                                <div id="vuln-count" class="card-value">0</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="card-label">Requests Executed</div>
+                                <div id="requests-count" class="card-value">0</div>
+                            </div>
+                        </div>
+
+                        <div class="progress-container">
+                            <div id="progress-bar" class="progress-bar">
+                                <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel">
+                        <h2>🎯 Target Information</h2>
+                        <div id="target-info" class="info-box">
+                            <p><strong>Target URL:</strong> <span id="target-info-url">Not set</span></p>
+                            <p><strong>LLM Type:</strong> <span id="target-info-llm">Not set</span></p>
+                            <p><strong>LLM Model:</strong> <span id="target-info-model">Not set</span></p>
+                            <p><strong>Scan ID:</strong> <span id="target-info-scanid">None</span></p>
+                        </div>
+                    </div>
+
+                    <div class="panel">
+                        <h2>📈 Metrics</h2>
+                        <div class="metrics-grid">
+                            <div class="metric">
+                                <div class="metric-label">Endpoints Discovered</div>
+                                <div id="metric-endpoints" class="metric-value">0</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Tests Generated</div>
+                                <div id="metric-tests" class="metric-value">0</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">High Severity</div>
+                                <div id="metric-high" class="metric-value severity-high">0</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Medium Severity</div>
+                                <div id="metric-medium" class="metric-value severity-medium">0</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Schemas Tab -->
+                <div id="schemas" class="tab-content">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h2>📋 Schema Management</h2>
+                            <button id="refresh-schemas-btn" class="btn btn-small">🔄 Refresh</button>
+                        </div>
+                        
+                        <!-- Upload Schema -->
+                        <div class="schema-upload-section">
+                            <h3>📤 Upload New Schema</h3>
+                            <div class="upload-form">
+                                <input type="file" id="schema-file" accept=".json,.yaml,.yml" class="file-input">
+                                <button id="upload-schema-btn" class="btn btn-primary">Upload Schema</button>
+                            </div>
+                        </div>
+
+                        <!-- Schema List -->
+                        <div class="schema-list-section">
+                            <h3>📚 Available Schemas</h3>
+                            <div id="schemas-container" class="schemas-container">
+                                <p class="empty-state">Loading schemas...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Logs Tab -->
+                <div id="logs" class="tab-content">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h2>📝 Scan Logs</h2>
+                            <button id="clear-logs-btn" class="btn btn-small">Clear</button>
+                        </div>
+                        <div id="logs-container" class="logs-container">
+                            <p class="log-entry log-info">Ready to start scan...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results Tab -->
+                <div id="results" class="tab-content">
+                    <div class="panel">
+                        <h2>🐛 Vulnerabilities Found</h2>
+                        <div id="results-container" class="results-container">
+                            <p class="empty-state">No vulnerabilities found yet. Start a scan to see results.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Sidebar - Quick Stats -->
+            <aside class="right-sidebar">
+                <div class="panel">
+                    <h2>📊 Quick Stats</h2>
+                    <div class="stat">
+                        <span class="stat-label">Current Scan Time</span>
+                        <span id="scan-time" class="stat-value">00:00:00</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Avg Response Time</span>
+                        <span id="avg-response" class="stat-value">0ms</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Success Rate</span>
+                        <span id="success-rate" class="stat-value">0%</span>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>🔧 Actions</h2>
+                    <button id="stop-scan-btn" class="btn btn-danger btn-block" disabled>Stop Scan</button>
+                    <button id="export-report-btn" class="btn btn-secondary btn-block" disabled>📥 Export Report</button>
+                    <button id="refresh-btn" class="btn btn-secondary btn-block">🔄 Refresh</button>
+                </div>
+
+                <div class="panel">
+                    <h2>ℹ️ About</h2>
+                    <p class="about-text">APIX-Ray v1.0.0</p>
+                    <p class="about-text small">AI-powered API pentest agent</p>
+                    <p class="about-text small">License: GPL-3.0</p>
+                </div>
+            </aside>
+        </main>
+
+        <!-- Toast Notifications -->
+        <div id="toast-container" class="toast-container"></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
