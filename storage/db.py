@@ -1,6 +1,6 @@
 import motor.motor_asyncio
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import uuid
 from datetime import datetime
 
@@ -9,6 +9,7 @@ MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
 DATABASE_NAME = "apixray_storage"
 COLLECTION_NAME = "json_objects"
 REPORTS_COLLECTION = "scan_reports"
+PLAYBOOKS_COLLECTION = "playbooks"
 
 class StorageDB:
     def __init__(self):
@@ -16,6 +17,7 @@ class StorageDB:
         self.db = self.client[DATABASE_NAME]
         self.collection = self.db[COLLECTION_NAME]
         self.reports_collection = self.db[REPORTS_COLLECTION]
+        self.playbooks_collection = self.db[PLAYBOOKS_COLLECTION]
 
     async def store_json(self, data: Dict[str, Any], object_id: Optional[str] = None) -> str:
         """Stocke un objet JSON et retourne son ID."""
@@ -120,6 +122,53 @@ class StorageDB:
                 "vulnerabilities_count": doc.get("vulnerabilities_found", 0)
             })
         return reports
+
+    # Méthodes pour les playbooks
+    async def store_playbook(self, vuln_type: str, playbook_data: Dict[str, Any]) -> bool:
+        """Stocke ou met à jour un playbook."""
+        document = {
+            "_id": vuln_type,
+            "vuln_type": vuln_type,
+            "playbook": playbook_data,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        }
+
+        try:
+            await self.playbooks_collection.replace_one(
+                {"_id": vuln_type},
+                document,
+                upsert=True
+            )
+            return True
+        except Exception as e:
+            print(f"Error storing playbook {vuln_type}: {e}")
+            return False
+
+    async def get_playbook(self, vuln_type: str) -> Optional[Dict[str, Any]]:
+        """Récupère un playbook par type de vulnérabilité."""
+        document = await self.playbooks_collection.find_one({"_id": vuln_type})
+        if document:
+            return document["playbook"]
+        return None
+
+    async def get_all_playbooks(self) -> Dict[str, Dict[str, Any]]:
+        """Récupère tous les playbooks."""
+        playbooks = {}
+        cursor = self.playbooks_collection.find({})
+        async for doc in cursor:
+            playbooks[doc["vuln_type"]] = doc["playbook"]
+        return playbooks
+
+    async def delete_playbook(self, vuln_type: str) -> bool:
+        """Supprime un playbook."""
+        result = await self.playbooks_collection.delete_one({"_id": vuln_type})
+        return result.deleted_count > 0
+
+    async def list_playbook_types(self) -> List[str]:
+        """Liste tous les types de vulnérabilités disponibles."""
+        cursor = self.playbooks_collection.find({}, {"_id": 1})
+        return [doc["_id"] async for doc in cursor]
 
 # Instance globale
 storage_db = StorageDB()

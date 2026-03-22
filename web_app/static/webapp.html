@@ -187,6 +187,8 @@
                 <div class="tabs">
                     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
                     <button class="tab-btn" data-tab="schemas">Schemas</button>
+                    <button class="tab-btn" data-tab="playbooks">Playbooks</button>
+                    <button class="tab-btn" data-tab="history">History</button>
                     <button class="tab-btn" data-tab="logs">Logs</button>
                     <button class="tab-btn" data-tab="results">Results</button>
                     <button class="tab-btn" data-tab="reports">Reports</button>
@@ -320,6 +322,82 @@
                     </div>
                 </div>
 
+                <!-- Playbooks Tab -->
+                <div id="playbooks" class="tab-content">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h2>📚 Security Testing Playbooks</h2>
+                            <div>
+                                <button id="add-playbook-btn" class="btn btn-primary btn-small">➕ Add New</button>
+                                <button id="refresh-playbooks-btn" class="btn btn-small">🔄 Refresh</button>
+                            </div>
+                        </div>
+
+                        <!-- Add New Playbook Form -->
+                        <div id="add-playbook-form" class="schema-upload-section" style="display: none;">
+                            <h3>📝 Create New Playbook</h3>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="new-playbook-type">Vulnerability Type *</label>
+                                    <input type="text" id="new-playbook-type" placeholder="e.g., CSRF, XXE, SSRF" required>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="new-playbook-description">Description *</label>
+                                    <input type="text" id="new-playbook-description" placeholder="Brief description of the vulnerability" required>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="new-playbook-severity">Severity *</label>
+                                    <select id="new-playbook-severity" required>
+                                        <option value="info">Info</option>
+                                        <option value="low">Low</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="high">High</option>
+                                        <option value="critical">Critical</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="new-playbook-cvss">CVSS Base Score</label>
+                                    <input type="number" id="new-playbook-cvss" placeholder="0.0" min="0" max="10" step="0.1" value="5.0">
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Reconnaissance Steps</label>
+                                <textarea id="new-playbook-recon" placeholder="List reconnaissance steps, one per line..." rows="3"></textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Validation Rules</label>
+                                <textarea id="new-playbook-validation" placeholder="List validation rules, one per line..." rows="3"></textarea>
+                            </div>
+
+                            <div class="form-actions">
+                                <button id="save-playbook-btn" class="btn btn-primary">💾 Save Playbook</button>
+                                <button id="cancel-playbook-btn" class="btn btn-secondary">❌ Cancel</button>
+                            </div>
+                        </div>
+
+                        <div id="playbooks-container" class="playbooks-container">
+                            <p class="empty-state">Loading playbooks...</p>
+                        </div>
+                    </div>
+                </div>
+                <!-- History Tab -->
+                <div id="history" class="tab-content">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h2>📚 Scan History</h2>
+                            <button id="refresh-history-btn" class="btn btn-small">🔄 Refresh</button>
+                        </div>
+
+                        <div id="history-container" class="history-container">
+                            <p class="empty-state">Loading scan history...</p>
+                        </div>
+                    </div>
+                </div>
                 <!-- Results Tab -->
                 <div id="results" class="tab-content">
                     <div class="panel">

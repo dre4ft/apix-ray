@@ -330,17 +330,33 @@ async def get_llm_models():
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": f"Failed to get LLM models: {str(e)}"})
 
+@scan_router.get("/scan_history")
+async def get_scan_history(limit: int = 20):
+    """Récupérer l'historique des scans passés"""
+    try:
+        scans = await storage_db.list_scan_reports(limit)
+        return JSONResponse(status_code=200, content={"scans": scans})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"Failed to get scan history: {str(e)}"})
+
 @scan_router.get("/get_report/{scan_id}")
 async def get_scan_report(scan_id: str):
     """Récupérer le rapport complet d'un scan au format Markdown"""
     try:
+        print(f"DEBUG: Attempting to get report for scan {scan_id}")
+
         # Essayer d'abord de récupérer depuis MongoDB
         report_data = await storage_db.get_scan_report(scan_id)
+        print(f"DEBUG: Database query result: {report_data is not None}")
 
         if report_data:
+            report_content = report_data.get("report", "")
+            print(f"DEBUG: Report content length: {len(report_content)}")
+            print(f"DEBUG: Report preview: {report_content[:100]}..." if report_content else "Report content is empty!")
+
             # Retourner le rapport au format Markdown
             return Response(
-                content=report_data["report"],
+                content=report_content,
                 media_type="text/markdown",
                 headers={"Content-Disposition": f"attachment; filename=apix-ray-report-{scan_id}.md"}
             )

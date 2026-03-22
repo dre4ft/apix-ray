@@ -7,8 +7,15 @@ import json
 import logging
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+import sys
+import os
 
 logger = logging.getLogger(__name__)
+
+# Import playbook manager
+playbooks_path = os.path.join(os.path.dirname(__file__), '..', 'playbooks')
+sys.path.append(playbooks_path)
+from playbooks import playbook_manager
 
 @dataclass
 class ToolResult:
@@ -26,6 +33,7 @@ class APIPentestTools:
         self.request_manager = request_manager
         self.discovered_endpoints = {}
         self.test_history = []
+        self.playbook_manager = playbook_manager
 
         # Dynamic request configuration
         self.request_limits = request_limits or {
@@ -151,6 +159,8 @@ class APIPentestTools:
 
     async def execute_tool(self, tool_name: str, parameters: Dict[str, Any]) -> ToolResult:
         """Execute a specific tool"""
+        print(f"DEBUG EXECUTE: Executing tool {tool_name} with params type: {type(parameters)}")
+        print(f"DEBUG EXECUTE: Params content: {parameters}")
         try:
             if tool_name == "discover_endpoints":
                 return await self._discover_endpoints()
@@ -264,6 +274,7 @@ class APIPentestTools:
 
     async def _comprehensive_security_scan(self, vulnerability_types: List[str], depth: str = "intermediate", max_requests: int = None) -> ToolResult:
         """Perform comprehensive security testing across all endpoints with adaptive request management"""
+        print(f"DEBUG SCAN: Starting comprehensive scan with vuln_types: {vulnerability_types}, depth: {depth}, max_requests: {max_requests}")
         if not self.discovered_endpoints:
             return ToolResult(False, None, "No endpoints discovered. Run discover_endpoints first.")
 
@@ -351,6 +362,7 @@ class APIPentestTools:
             all_findings.extend(vuln_findings)
 
         # Generate comprehensive report
+        print(f"DEBUG SCAN: Generating executive report with {len(all_findings)} findings")
         report_result = await self._generate_executive_report(all_findings, {
             "total_endpoints": len(self.discovered_endpoints),
             "vulnerability_types_tested": vulnerability_types,
@@ -358,6 +370,12 @@ class APIPentestTools:
             "scan_depth": depth,
             "scan_timestamp": "2026-03-21T19:35:00Z"
         })
+
+        print(f"DEBUG SCAN: Report generation success: {report_result.success}")
+        if report_result.success and report_result.data:
+            print(f"DEBUG SCAN: Generated report length: {len(report_result.data)}")
+        else:
+            print(f"DEBUG SCAN: Report generation failed or returned None")
 
         return ToolResult(True, {
             "findings": all_findings,
@@ -459,7 +477,9 @@ class APIPentestTools:
 
     def _select_endpoints_for_vulnerability(self, vulnerability_type: str, max_endpoints: int) -> List[str]:
         """Select most relevant endpoints for a specific vulnerability type"""
+        print(f"DEBUG SELECT: Selecting endpoints for vuln_type: {vulnerability_type} (type: {type(vulnerability_type)}), max_endpoints: {max_endpoints}")
         endpoint_keys = list(self.discovered_endpoints.keys())
+        print(f"DEBUG SELECT: Found {len(endpoint_keys)} endpoint keys")
 
         # Prioritize endpoints based on vulnerability type
         priority_patterns = {
@@ -490,60 +510,56 @@ class APIPentestTools:
         return prioritized_endpoints[:max_endpoints]
 
     async def _generate_advanced_tests(self, endpoint_key: str, vulnerability_type: str, intensity: str = "normal") -> ToolResult:
-        """Generate advanced security tests with multiple payloads and edge cases"""
+        """Generate advanced security tests using playbook methodology"""
         if endpoint_key not in self.discovered_endpoints:
             return ToolResult(False, None, f"Endpoint {endpoint_key} not found")
 
         endpoint_details = self.discovered_endpoints[endpoint_key]
-        base_url = f"{self.api_base_url}{endpoint_details.get('path', '')}"
 
-        # Define payloads based on vulnerability type and intensity
-        payload_configs = {
-            "SQL Injection": {
-                "light": ["'", "''", "' OR '1'='1"],
-                "normal": ["'", "''", "' OR '1'='1", "'; DROP TABLE users--", "' UNION SELECT * FROM users--"],
-                "aggressive": ["'", "''", "' OR '1'='1", "'; DROP TABLE users--", "' UNION SELECT * FROM users--", "' AND 1=0 UNION SELECT username, password FROM users--"]
-            },
-            "XSS": {
-                "light": ["<script>alert(1)</script>", "<img src=x onerror=alert(1)>"],
-                "normal": ["<script>alert(1)</script>", "<img src=x onerror=alert(1)>", "<svg onload=alert(1)>", "javascript:alert(1)"],
-                "aggressive": ["<script>alert(1)</script>", "<img src=x onerror=alert(1)>", "<svg onload=alert(1)>", "javascript:alert(1)", "<iframe src=javascript:alert(1)></iframe>"]
-            },
-            "IDOR": {
-                "light": ["../", "..", "."],
-                "normal": ["../", "..", ".", "../../../etc/passwd", "../../admin"],
-                "aggressive": ["../", "..", ".", "../../../etc/passwd", "../../admin", "../../../../root", "0", "-1", "999999"]
-            }
+        # Use playbook to generate smart payloads
+        endpoint_info = {
+            "path": endpoint_details.get("path", ""),
+            "method": endpoint_details.get("method", "GET"),
+            "parameters": endpoint_details.get("parameters", [])
         }
 
-        payloads = payload_configs.get(vulnerability_type, {"normal": ["test payload"]}).get(intensity, ["test payload"])
+        smart_payloads = await self.playbook_manager.generate_smart_payloads(vulnerability_type, endpoint_info)
 
         test_requests = []
-        parameters = endpoint_details.get("parameters", [])
 
-        for payload in payloads:
-            # Generate test requests for each parameter
-            for param in parameters:
-                if param.get("in") in ["query", "path"]:
-                    test_request = {
-                        "method": endpoint_details.get("method", "GET"),
-                        "url": base_url,
-                        "vulnerability_type": vulnerability_type,
-                        "endpoint_key": endpoint_key,
-                        "test_payload": payload,
-                        "target_parameter": param.get("name")
-                    }
+        for payload_info in smart_payloads:
+            base_url = f"{self.api_base_url}{endpoint_details.get('path', '')}"
 
-                    # Add payload to appropriate parameter
-                    if param.get("in") == "query":
-                        test_request["params"] = {param.get("name"): payload}
-                    elif param.get("in") == "path":
-                        # Replace path parameter with payload
-                        test_request["url"] = base_url.replace(f"{{{param.get('name')}}}", payload)
+            test_request = {
+                "method": endpoint_details.get("method", "GET"),
+                "url": base_url,
+                "vulnerability_type": vulnerability_type,
+                "endpoint_key": endpoint_key,
+                "test_payload": payload_info["payload"],
+                "target_parameter": payload_info["parameter"],
+                "phase": payload_info["phase"],
+                "expected_indicators": payload_info["expected_indicators"]
+            }
 
-                    test_requests.append(test_request)
+            # Add payload to appropriate parameter
+            param_name = payload_info["parameter"]
+            if any(p.get("name") == param_name and p.get("in") == "query" for p in endpoint_details.get("parameters", [])):
+                test_request["params"] = {param_name: payload_info["payload"]}
+            elif any(p.get("name") == param_name and p.get("in") == "path" for p in endpoint_details.get("parameters", [])):
+                # Replace path parameter with payload
+                test_request["url"] = base_url.replace(f"{{{param_name}}}", payload_info["payload"])
+            else:
+                # For body parameters or other cases, add to data
+                test_request["data"] = {param_name: payload_info["payload"]}
 
-        return ToolResult(True, test_requests, f"Generated {len(test_requests)} advanced test requests for {vulnerability_type}")
+            test_requests.append(test_request)
+
+        # Limit based on intensity
+        intensity_limits = {"light": 3, "normal": 10, "aggressive": 25}
+        max_tests = intensity_limits.get(intensity, 10)
+        test_requests = test_requests[:max_tests]
+
+        return ToolResult(True, test_requests, f"Generated {len(test_requests)} playbook-based test requests for {vulnerability_type}")
 
     async def _execute_batch_tests(self, test_requests: List[Dict[str, Any]]) -> ToolResult:
         """Execute multiple test requests in batch"""
@@ -567,7 +583,7 @@ class APIPentestTools:
         return ToolResult(True, results, f"Executed {len(results)} batch test requests")
 
     async def _intelligent_vulnerability_analysis(self, test_results: List[Dict[str, Any]], vulnerability_type: str, context: Dict[str, Any]) -> ToolResult:
-        """Perform intelligent analysis of test results"""
+        """Perform intelligent analysis of test results using playbook validation"""
         findings = []
 
         for result in test_results:
@@ -575,21 +591,19 @@ class APIPentestTools:
                 continue
 
             response = result.get("response", {})
-            status_code = response.get("status_code", 0)
-            response_body = str(response.get("body", ""))
+            phase = result.get("request", {}).get("phase", "")
 
-            # Analyze based on vulnerability type
-            if vulnerability_type == "SQL Injection":
-                if self._detect_sql_injection(response_body, status_code):
-                    findings.append(self._create_finding(vulnerability_type, result, "High", "SQL injection vulnerability detected"))
+            # Use playbook validation
+            validation = await self.playbook_manager.validate_response_for_vulnerability(response, vulnerability_type, phase)
 
-            elif vulnerability_type == "XSS":
-                if self._detect_xss(response_body):
-                    findings.append(self._create_finding(vulnerability_type, result, "Medium", "Potential XSS vulnerability detected"))
+            if validation["is_vulnerable"]:
+                severity = validation["severity"]
+                confidence = validation["confidence"]
+                indicators = validation["indicators"]
 
-            elif vulnerability_type == "IDOR":
-                if self._detect_idor(response, status_code):
-                    findings.append(self._create_finding(vulnerability_type, result, "High", "IDOR vulnerability detected"))
+                description = f"{vulnerability_type} vulnerability detected with {confidence:.1%} confidence. Indicators: {', '.join(indicators)}"
+
+                findings.append(self._create_finding(vulnerability_type, result, severity, description))
 
             # Add more vulnerability-specific analysis here
 

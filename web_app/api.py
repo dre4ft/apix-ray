@@ -16,6 +16,7 @@ from db import storage_db
 sys.path.append(os.path.join(os.path.dirname(__file__), 'apis'))
 from schema_api import schema_router
 from scan_api import scan_router
+from playbook_api import playbook_router
 
 # Create the main FastAPI app
 app = FastAPI(
@@ -37,6 +38,7 @@ app.add_middleware(
 # Include routers
 app.include_router(schema_router)
 app.include_router(scan_router)
+app.include_router(playbook_router)
 
 @app.get("/health")
 def health_check():
@@ -44,4 +46,25 @@ def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8080)
+    import os
+
+    # Enable auto-reload in development
+    reload_enabled = os.getenv("API_RELOAD", "true").lower() == "true"
+
+    if reload_enabled:
+        # Use import string for reload to work properly
+        uvicorn.run(
+            "api:app",
+            host="127.0.0.1",
+            port=8080,
+            reload=True,
+            reload_dirs=[".", "../src", "../playbooks"]
+        )
+    else:
+        # Use app object directly when reload is disabled
+        uvicorn.run(
+            app,
+            host="127.0.0.1",
+            port=8080,
+            reload=False
+        )

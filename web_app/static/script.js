@@ -13,17 +13,15 @@ document.addEventListener('DOMContentLoaded', () => {
     checkHealth();
 });
 
-function initializeUI() {
-    // Load vulnerabilities
-    const checkboxes = document.querySelectorAll('.checkbox input[type="checkbox"]');
-    checkboxes.forEach(cb => {
-        if (cb.checked) {
-            selectedVulnerabilities.push(cb.value);
-        }
-    });
+async function initializeUI() {
+    // Load vulnerabilities from playbooks
+    await loadVulnerabilitiesFromPlaybooks();
 
     // Load schemas
     loadSchemas();
+
+    // Load playbooks
+    loadPlaybooks();
 }
 
 function setupEventListeners() {
@@ -45,6 +43,15 @@ function setupEventListeners() {
 
     // Reports management
     document.getElementById('refresh-reports-btn').addEventListener('click', loadReports);
+
+    // Playbooks management
+    document.getElementById('refresh-playbooks-btn').addEventListener('click', loadPlaybooks);
+    document.getElementById('add-playbook-btn').addEventListener('click', showAddPlaybookForm);
+    document.getElementById('save-playbook-btn').addEventListener('click', saveNewPlaybook);
+    document.getElementById('cancel-playbook-btn').addEventListener('click', hideAddPlaybookForm);
+
+    // History management
+    document.getElementById('refresh-history-btn').addEventListener('click', loadScanHistory);
 
     // Vulnerability checkboxes
     document.querySelectorAll('.checkbox input[type="checkbox"]').forEach(cb => {
@@ -99,6 +106,50 @@ function setHealthStatus(isHealthy) {
     } else {
         indicator.classList.add('offline');
         text.textContent = 'Offline';
+    }
+}
+
+// ===== Vulnerabilities from Playbooks =====
+async function loadVulnerabilitiesFromPlaybooks() {
+    try {
+        const response = await fetch(`${API_BASE}/playbooks/vulnerabilities`);
+        const data = await response.json();
+
+        const vulnerabilityList = document.querySelector('.checkbox-group');
+        vulnerabilityList.innerHTML = ''; // Clear existing checkboxes
+
+        data.vulnerabilities.forEach(vuln => {
+            const label = document.createElement('label');
+            label.className = 'checkbox';
+
+            label.innerHTML = `
+                <input type="checkbox" value="${vuln}" checked>
+                ${vuln}
+            `;
+
+            vulnerabilityList.appendChild(label);
+
+            // Add to selected vulnerabilities
+            selectedVulnerabilities.push(vuln);
+        });
+
+        // Re-attach event listeners for new checkboxes
+        document.querySelectorAll('.checkbox input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    if (!selectedVulnerabilities.includes(e.target.value)) {
+                        selectedVulnerabilities.push(e.target.value);
+                    }
+                } else {
+                    selectedVulnerabilities = selectedVulnerabilities.filter(v => v !== e.target.value);
+                }
+            });
+        });
+
+    } catch (error) {
+        console.error('Failed to load vulnerabilities from playbooks:', error);
+        // Fallback to default vulnerabilities
+        showToast('Failed to load vulnerabilities, using defaults', 'warning');
     }
 }
 
@@ -639,6 +690,254 @@ async function downloadReport(scanId) {
     }
 }
 
+// ===== Playbooks Management =====
+async function loadPlaybooks() {
+    try {
+        const response = await fetch(`${API_BASE}/playbooks/`);
+        const data = await response.json();
+
+        displayPlaybooks(data.playbooks || {});
+    } catch (error) {
+        showToast('Failed to load playbooks', 'error');
+        console.error('Load playbooks error:', error);
+        displayPlaybooks({});
+    }
+}
+
+function displayPlaybooks(playbooks) {
+    const container = document.getElementById('playbooks-container');
+
+    if (Object.keys(playbooks).length === 0) {
+        container.innerHTML = '<p class="empty-state">No playbooks available.</p>';
+        return;
+    }
+
+    container.innerHTML = '';
+
+    Object.entries(playbooks).forEach(([vulnType, playbook]) => {
+        const playbookElement = document.createElement('div');
+        playbookElement.className = 'playbook-item';
+
+        const severityClass = `severity-${playbook.severity.toLowerCase()}`;
+
+        playbookElement.innerHTML = `
+            <div class="playbook-header">
+                <div>
+                    <div class="playbook-title">${vulnType}</div>
+                    <div class="playbook-description">${playbook.description}</div>
+                </div>
+                <div class="playbook-meta">
+                    <span class="severity-badge ${severityClass}">${playbook.severity}</span>
+                    <span>CVSS: ${playbook.cvss_base_score}</span>
+                </div>
+            </div>
+            <div class="playbook-details">
+                <button class="btn btn-small" onclick="showPlaybookDetails('${vulnType}')">
+                    📖 View Methodology
+                </button>
+                <button class="btn btn-small btn-warning" onclick="editPlaybook('${vulnType}')">
+                    ✏️ Edit
+                </button>
+                <button class="btn btn-small btn-danger" onclick="deletePlaybook('${vulnType}')">
+                    🗑️ Delete
+                </button>
+            </div>
+        `;
+
+        container.appendChild(playbookElement);
+    });
+}
+
+async function showPlaybookDetails(vulnType) {
+    try {
+        const response = await fetch(`${API_BASE}/playbooks/${encodeURIComponent(vulnType)}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+            showToast(`Failed to load playbook details: ${data.error}`, 'error');
+            return;
+        }
+
+        const playbook = data.playbook;
+        const methodology = playbook.methodology;
+
+        // Create modal or expand details
+        const detailsHtml = `
+            <div style="background: var(--surface); padding: 20px; border-radius: 8px; margin-top: 10px;">
+                <h3>🔬 Testing Methodology for ${vulnType}</h3>
+
+                <div class="methodology-section">
+                    <h4 class="methodology-title">📋 Reconnaissance</h4>
+                    <ul class="methodology-list">
+                        ${methodology.reconnaissance.map(item => `<li>${item}</li>`).join('')}
+                    </ul>
+                </div>
+
+                <div class="methodology-section">
+                    <h4 class="methodology-title">🎯 Testing Phases</h4>
+                    ${methodology.testing_phases.map(phase => `
+                        <div style="margin-bottom: 15px; padding: 10px; background: var(--surface-light); border-radius: 4px;">
+                            <strong>${phase.phase}</strong>: ${phase.description}
+                            <br><small style="color: var(--text-secondary);">Payloads: ${phase.payloads.slice(0, 3).join(', ')}${phase.payloads.length > 3 ? '...' : ''}</small>
+                        </div>
+                    `).join('')}
+                </div>
+
+                <div class="methodology-section">
+                    <h4 class="methodology-title">✅ Validation Rules</h4>
+                    <ul class="methodology-list">
+                        ${methodology.validation_rules.map(rule => `<li>${rule}</li>`).join('')}
+                    </ul>
+                </div>
+            </div>
+        `;
+
+        // Show in a modal or replace content
+        showModal(`Playbook: ${vulnType}`, detailsHtml);
+
+    } catch (error) {
+        showToast('Failed to load playbook details', 'error');
+        console.error('Load playbook details error:', error);
+    }
+}
+
+// ===== Playbook Creation =====
+function showAddPlaybookForm() {
+    document.getElementById('add-playbook-form').style.display = 'block';
+    document.getElementById('add-playbook-btn').style.display = 'none';
+}
+
+function hideAddPlaybookForm() {
+    document.getElementById('add-playbook-form').style.display = 'none';
+    document.getElementById('add-playbook-btn').style.display = 'inline-block';
+    // Clear form
+    document.getElementById('new-playbook-type').value = '';
+    document.getElementById('new-playbook-description').value = '';
+    document.getElementById('new-playbook-severity').value = 'medium';
+    document.getElementById('new-playbook-cvss').value = '5.0';
+    document.getElementById('new-playbook-recon').value = '';
+    document.getElementById('new-playbook-validation').value = '';
+}
+
+async function saveNewPlaybook() {
+    const vulnType = document.getElementById('new-playbook-type').value.trim();
+    const description = document.getElementById('new-playbook-description').value.trim();
+    const severity = document.getElementById('new-playbook-severity').value;
+    const cvssScore = parseFloat(document.getElementById('new-playbook-cvss').value) || 5.0;
+
+    // Get reconnaissance steps
+    const reconText = document.getElementById('new-playbook-recon').value.trim();
+    const reconnaissance = reconText ? reconText.split('\n').filter(line => line.trim()) : [];
+
+    // Get validation rules
+    const validationText = document.getElementById('new-playbook-validation').value.trim();
+    const validationRules = validationText ? validationText.split('\n').filter(line => line.trim()) : [];
+
+    // Validate required fields
+    if (!vulnType || !description) {
+        showToast('Vulnerability Type and Description are required', 'error');
+        return;
+    }
+
+    // Create playbook structure
+    const playbook = {
+        description: description,
+        methodology: {
+            reconnaissance: reconnaissance,
+            testing_phases: [
+                {
+                    phase: "Basic Testing",
+                    description: `Basic ${vulnType} vulnerability testing`,
+                    payloads: ["' OR '1'='1", "test", "<script>alert(1)</script>"],
+                    target_parameters: ["id", "name", "query"],
+                    http_methods: ["GET", "POST"],
+                    success_indicators: ["error", "exception", "vulnerable"]
+                }
+            ],
+            validation_rules: validationRules
+        },
+        severity: severity,
+        cvss_base_score: cvssScore,
+        enabled: true
+    };
+
+    try {
+        const response = await fetch(`${API_BASE}/playbooks/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                vulnerability_type: vulnType,
+                playbook: playbook
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showToast(`Playbook for ${vulnType} created successfully!`, 'success');
+            hideAddPlaybookForm();
+            loadPlaybooks(); // Refresh the list
+        } else {
+            showToast(`Failed to create playbook: ${data.error}`, 'error');
+        }
+    } catch (error) {
+        showToast('Failed to create playbook', 'error');
+        console.error('Create playbook error:', error);
+    }
+}
+
+async function editPlaybook(vulnType) {
+    // For now, just show a message that editing is not implemented
+    // In a full implementation, this would open the form with existing data
+    showToast(`Editing playbook "${vulnType}" - Feature coming soon!`, 'info');
+}
+
+async function deletePlaybook(vulnType) {
+    if (!confirm(`Are you sure you want to delete the playbook for "${vulnType}"? This action cannot be undone.`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/playbooks/${encodeURIComponent(vulnType)}`, {
+            method: 'DELETE'
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showToast(`Playbook for ${vulnType} deleted successfully!`, 'success');
+            loadPlaybooks(); // Refresh the list
+        } else {
+            showToast(`Failed to delete playbook: ${data.error}`, 'error');
+        }
+    } catch (error) {
+        showToast('Failed to delete playbook', 'error');
+        console.error('Delete playbook error:', error);
+    }
+}
+
+function showModal(title, content) {
+    // Create modal overlay
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.8); z-index: 1000; display: flex;
+        align-items: center; justify-content: center;
+    `;
+
+    modal.innerHTML = `
+        <div style="background: var(--background); border-radius: 8px; max-width: 800px; max-height: 80vh; overflow-y: auto; width: 90%; padding: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0; color: var(--text-primary);">${title}</h2>
+                <button onclick="this.closest('div').parentElement.remove()" style="background: none; border: none; color: var(--text-primary); font-size: 24px; cursor: pointer;">×</button>
+            </div>
+            ${content}
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+}
+
 async function uploadSchema() {
     const fileInput = document.getElementById('schema-file');
     const file = fileInput.files[0];
@@ -809,6 +1108,77 @@ function closeSchemaModal() {
     }
 }
 
+// ===== History Management =====
+async function loadScanHistory() {
+    try {
+        const response = await fetch(`${API_BASE}/scan_history`);
+        const data = await response.json();
+
+        displayScanHistory(data.scans || []);
+    } catch (error) {
+        showToast('Failed to load scan history', 'error');
+        console.error('Load scan history error:', error);
+        displayScanHistory([]);
+    }
+}
+
+function displayScanHistory(scans) {
+    const container = document.getElementById('history-container');
+
+    if (scans.length === 0) {
+        container.innerHTML = '<p class="empty-state">No scan history available.</p>';
+        return;
+    }
+
+    container.innerHTML = '';
+
+    scans.forEach(scan => {
+        const scanElement = document.createElement('div');
+        scanElement.className = 'scan-card';
+        scanElement.onclick = () => viewScanDetails(scan.scan_id);
+
+        const statusClass = `scan-status ${scan.status.toLowerCase()}`;
+        const createdDate = new Date(scan.created_at).toLocaleString();
+        const vulnCount = scan.vulnerabilities_found || 0;
+
+        scanElement.innerHTML = `
+            <div class="scan-card-header">
+                <div class="scan-id">${scan.scan_id}</div>
+                <div class="${statusClass}">${scan.status}</div>
+            </div>
+            <div class="scan-meta">
+                <span>📅 ${createdDate}</span>
+                <span>🎯 ${scan.target_url}</span>
+                <span>⚠️ ${vulnCount} vulnerabilities</span>
+            </div>
+            <div class="scan-summary">
+                ${scan.summary || 'No summary available'}
+            </div>
+        `;
+
+        container.appendChild(scanElement);
+    });
+}
+
+async function viewScanDetails(scanId) {
+    try {
+        const response = await fetch(`${API_BASE}/get_report/${scanId}`);
+        const data = await response.json();
+
+        if (response.ok) {
+            // Display scan report in a modal or switch to reports tab
+            switchTab('reports');
+            // You could also implement a modal here
+            showToast('Scan report loaded', 'success');
+        } else {
+            showToast('Failed to load scan report', 'error');
+        }
+    } catch (error) {
+        showToast('Error loading scan report', 'error');
+        console.error('View scan details error:', error);
+    }
+}
+
 // ===== Tab Switching =====
 function switchTab(tabName) {
     // Deactivate all tabs
@@ -822,6 +1192,8 @@ function switchTab(tabName) {
     // Load content for specific tabs
     if (tabName === 'reports') {
         loadReports();
+    } else if (tabName === 'history') {
+        loadScanHistory();
     }
 }
 

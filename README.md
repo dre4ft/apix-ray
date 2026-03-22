@@ -46,6 +46,14 @@ APIX-Ray automatise le pentest d'APIs REST en combinant intelligence artificiell
 - **Rate Limiting Bypass**
 - **Authentication Bypass**
 
+### 📚 Playbooks de sécurité
+APIX-Ray utilise un système de **playbooks** extensibles pour définir les méthodologies de test pour chaque type de vulnérabilité :
+
+- **Playbooks prédéfinis** : SQL Injection, XSS, IDOR, etc.
+- **Création personnalisée** : Interface web pour ajouter de nouveaux playbooks
+- **Méthodologies structurées** : Reconnaissance, phases de test, règles de validation
+- **Stockage persistant** : Playbooks sauvegardés en base MongoDB
+
 ---
 
 ## ✨ Fonctionnalités
@@ -307,6 +315,74 @@ const response = await fetch('/start_scan', {
 
 ---
 
+## 📚 Gestion des Playbooks
+
+### Vue d'ensemble des playbooks
+L'onglet **"Playbooks"** permet de consulter et gérer les méthodologies de test de sécurité :
+
+- **📖 Consultation** : Visualiser les playbooks existants avec leur méthodologie
+- **➕ Création** : Ajouter de nouveaux playbooks personnalisés
+- **🔧 Modification** : Éditer les playbooks existants
+- **🗑️ Suppression** : Supprimer les playbooks inutiles
+
+### Structure d'un playbook
+Chaque playbook définit une méthodologie complète de test :
+
+```json
+{
+  "description": "Description de la vulnérabilité",
+  "methodology": {
+    "reconnaissance": ["Étapes de reconnaissance"],
+    "testing_phases": [
+      {
+        "phase": "Nom de la phase",
+        "description": "Description détaillée",
+        "payloads": ["payload1", "payload2"],
+        "target_parameters": ["param1", "param2"],
+        "http_methods": ["GET", "POST"],
+        "success_indicators": ["indicateur1", "indicateur2"]
+      }
+    ],
+    "validation_rules": ["Règles de validation"]
+  },
+  "severity": "high|medium|low|critical|info",
+  "cvss_base_score": 8.5,
+  "enabled": true
+}
+```
+
+### API Playbooks
+```bash
+# Lister tous les playbooks
+GET /playbooks/
+
+# Obtenir un playbook spécifique
+GET /playbooks/{vulnerability_type}
+
+# Créer un nouveau playbook
+POST /playbooks/
+Content-Type: application/json
+{
+  "vulnerability_type": "New Vulnerability",
+  "playbook": {...}
+}
+
+# Modifier un playbook
+PUT /playbooks/{vulnerability_type}
+
+# Supprimer un playbook
+DELETE /playbooks/{vulnerability_type}
+
+# Générer des payloads intelligents
+POST /playbooks/generate_payloads
+{
+  "vulnerability_type": "SQL Injection",
+  "endpoint_info": {"method": "GET", "path": "/users"}
+}
+```
+
+---
+
 ## 🗄️ Stockage des Schémas
 
 ### Base de données MongoDB
@@ -405,9 +481,12 @@ python mock_api.py
 ## 🛠️ Développement
 
 ### Ajouter une nouvelle vulnérabilité
-1. Étendre `VULNERABILITY_TYPES` dans `pentest_agent.py`
-2. Ajouter la logique de génération dans `test_generator.py`
-3. Implémenter la détection dans `response_analyzer.py`
+1. **Via l'interface web** : Utiliser l'onglet "Playbooks" pour créer un nouveau playbook
+2. **Via API** : POST vers `/playbooks/` avec la structure JSON du playbook
+3. **Programmatiquement** :
+   - Étendre `VULNERABILITY_TYPES` dans `pentest_agent.py`
+   - Ajouter la logique de génération dans `test_generator.py`
+   - Implémenter la détection dans `response_analyzer.py`
 
 ### Support d'un nouveau LLM
 1. Créer une classe héritant de `BaseLLMClient`
@@ -450,6 +529,9 @@ logging.basicConfig(level=logging.DEBUG)
 - [ ] Intégration CI/CD
 
 ### 🔮 Planifié
+- [ ] Édition avancée des playbooks (interface complète)
+- [ ] Templates de playbooks prédéfinis
+- [ ] Validation automatique des playbooks
 - [ ] Interface mobile
 - [ ] Support GraphQL
 - [ ] Machine Learning pour détection avancée

@@ -20,6 +20,10 @@ def serve_static(filename):
         return "File not found", 404
 
 if __name__ == '__main__':
+    import os
+
     port = 8800
-    print(f"Serving static/ at http://localhost:{port}")
-    app.run(host='127.0.0.1', port=port, debug=False)
+    debug_enabled = os.getenv("WEB_DEBUG", "true").lower() == "true"
+
+    print(f"Serving static/ at http://localhost:{port} (debug={debug_enabled})")
+    app.run(host='127.0.0.1', port=port, debug=debug_enabled)

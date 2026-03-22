@@ -430,7 +430,27 @@ Always use tools to perform actions rather than describing what you would do."""
             for vuln_type in adaptive_limits:
                 adaptive_limits[vuln_type] = int(adaptive_limits[vuln_type] * scale_factor)
 
-        # Initialize conversation with the LLM
+        # Start directly with comprehensive security scan (skip LLM for first step)
+        logger.info("Starting with direct comprehensive_security_scan execution")
+        comprehensive_scan_result = await self._execute_tool_call({
+            "name": "comprehensive_security_scan",
+            "parameters": {
+                "vulnerability_types": vulnerability_types,
+                "depth": "deep",
+                "max_requests": min(global_max, 50)  # Limit for testing
+            }
+        })
+
+        if comprehensive_scan_result.success:
+            scan_completed = True
+            comprehensive_scan_results = comprehensive_scan_result.data
+            logger.info("Comprehensive security scan completed successfully")
+        else:
+            logger.error(f"Comprehensive security scan failed: {comprehensive_scan_result.message}")
+            # Fallback to LLM-driven approach if direct execution fails
+            logger.info("Falling back to LLM-driven approach")
+
+        # Initialize conversation with the LLM (fallback only)
         conversation = [
             {
                 "role": "user",
@@ -465,10 +485,9 @@ ADAPTIVE REQUEST MANAGEMENT:
 - Quality over quantity: Each request tests a specific, relevant vulnerability scenario
 
 WORKFLOW:
-1. Start with endpoint discovery
-2. Run adaptive scans with calculated request limits
-3. Analyze results and evolve request strategy
-4. Generate executive report with findings
+1. Run comprehensive_security_scan directly with all vulnerability types and depth 'deep'
+2. The scan will automatically discover endpoints and perform testing
+3. Generate executive report with findings
 
 Be methodical, thorough, and professional. Use adaptive intelligence to focus testing where it matters most."""
             }
@@ -514,12 +533,8 @@ Be methodical, thorough, and professional. Use adaptive intelligence to focus te
                     "content": f"Tool result: {tool_result.message}\nData: {json.dumps(tool_result.data) if tool_result.data else 'None'}"
                 })
 
-                # Force continuation after discover_endpoints
-                if tool_call["name"] == "discover_endpoints" and tool_result.success:
-                    conversation.append({
-                        "role": "user",
-                        "content": f"Great! Endpoints discovered. Now run comprehensive_security_scan with all vulnerability types: {', '.join(vulnerability_types)} and depth 'deep'."
-                    })
+                # Check if comprehensive scan was completed
+                # (No forced continuation needed - LLM should start with comprehensive_security_scan)
 
                 # Check if we should stop (LLM indicates completion)
                 if self._should_stop_workflow(conversation):
@@ -534,8 +549,13 @@ Be methodical, thorough, and professional. Use adaptive intelligence to focus te
         if comprehensive_scan_results and "report" in comprehensive_scan_results:
             report = comprehensive_scan_results["report"]
             logger.info("Using comprehensive scan executive report")
+            print(f"DEBUG MCP: Comprehensive scan report length: {len(report)}")
         else:
+            logger.info("No comprehensive scan report available, generating fallback report")
             report = await self._generate_final_report()
+            print(f"DEBUG MCP: Fallback report length: {len(report)}")
+
+        print(f"DEBUG MCP: Final report preview: {report[:200]}..." if report else "Report is None/empty!")
 
         # Send final KPI update
         if self.results_callback:

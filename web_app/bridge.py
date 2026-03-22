@@ -63,10 +63,16 @@ def start_scan(scan_id: uuid_utils.UUID, llm_type: str = "ollama", model: str = 
                 scan_sessions[scan_id_str]["report"] = result.get("report", "")
                 scan_sessions[scan_id_str]["progress"] = 100
 
+                # Debug logging
+                report_content = result.get("report", "")
+                print(f"DEBUG: Storing report for scan {scan_id_str}")
+                print(f"DEBUG: Report length: {len(report_content)} characters")
+                print(f"DEBUG: Report preview: {report_content[:200]}..." if report_content else "Report is empty!")
+
                 # Stocker le rapport complet dans MongoDB
                 report_data = {
                     "scan_id": scan_id_str,
-                    "report": result.get("report", ""),
+                    "report": report_content,
                     "status": result.get("status", "completed"),
                     "vulnerabilities_found": result.get("vulnerabilities_found", []),
                     "target_url": scan_sessions[scan_id_str].get("target_url", ""),
@@ -91,7 +97,12 @@ def start_scan(scan_id: uuid_utils.UUID, llm_type: str = "ollama", model: str = 
                         "success_rate_percent": scan_sessions[scan_id_str].get("success_rate_percent", 0)
                     }
 
-                await storage_db.store_scan_report(scan_id_str, report_data)
+                success = await storage_db.store_scan_report(scan_id_str, report_data)
+                print(f"DEBUG: Database storage result: {success}")
+                if not success:
+                    print("ERROR: Failed to store scan report in database!")
+                else:
+                    print(f"SUCCESS: Scan report stored for scan {scan_id_str}")
 
         except asyncio.CancelledError:
             # Gestion propre de l'annulation

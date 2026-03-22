@@ -3,14 +3,14 @@
 
 echo "🚀 Starting APIX-Ray services..."
 
-# Start FastAPI server
-echo "🌐 Starting FastAPI server on port 8080..."
-python api.py &
+# Start FastAPI server with auto-reload
+echo "🌐 Starting FastAPI server on port 8080 (with auto-reload)..."
+API_RELOAD=true python api.py &
 API_PID=$!
 
-# Start Flask web server
-echo "🖥️  Starting Flask web server on port 8800..."
-python web_serveur.py &
+# Start Flask web server with debug mode
+echo "🖥️  Starting Flask web server on port 8800 (with debug mode)..."
+WEB_DEBUG=true python web_serveur.py &
 WEB_PID=$!
 
 echo ""
